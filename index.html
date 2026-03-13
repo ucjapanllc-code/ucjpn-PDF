@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PDF Merger — ファイル結合ツール</title>
+<meta name="description" content="PDF・画像ファイルをひとつのPDFに結合するツール">
+<meta name="theme-color" content="#0d0d0d">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="PDF Merger">
+<link rel="manifest" href="./manifest.json">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&family=Space+Mono:wght@400;700&display=swap');
+  :root {
+    --bg: #0d0d0d; --surface: #161616; --surface2: #1e1e1e;
+    --border: #2a2a2a; --accent: #e8ff3c; --accent2: #3cffd4;
+    --text: #f0f0f0; --text-muted: #6b6b6b; --danger: #ff4c4c; --radius: 6px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Noto Sans JP', sans-serif; min-height: 100vh; padding: 40px 20px 80px; }
+  body::before { content: ''; position: fixed; inset: 0; background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E"); pointer-events: none; z-index: 0; opacity: 0.4; }
+  .container { max-width: 760px; margin: 0 auto; position: relative; z-index: 1; }
+  header { margin-bottom: 48px; }
+  .logo { font-family: 'Space Mono', monospace; font-size: 11px; letter-spacing: 0.2em; color: var(--accent); text-transform: uppercase; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
+  .logo::before { content: ''; width: 24px; height: 2px; background: var(--accent); display: inline-block; }
+  h1 { font-size: clamp(28px, 5vw, 44px); font-weight: 700; line-height: 1.15; letter-spacing: -0.02em; }
+  h1 span { color: var(--accent); }
+  .subtitle { margin-top: 10px; font-size: 14px; color: var(--text-muted); font-weight: 300; }
+  .drop-zone { border: 1.5px dashed var(--border); border-radius: var(--radius); padding: 56px 32px; text-align: center; cursor: pointer; transition: all 0.2s ease; background: var(--surface); position: relative; overflow: hidden; }
+  .drop-zone::after { content: ''; position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 0%, rgba(232,255,60,0.04) 0%, transparent 70%); pointer-events: none; }
+  .drop-zone:hover, .drop-zone.drag-over { border-color: var(--accent); background: #1a1a1a; }
+  .drop-zone.drag-over .drop-icon { transform: scale(1.1) translateY(-4px); }
+  .drop-icon { font-size: 48px; margin-bottom: 16px; transition: transform 0.2s ease; display: block; }
+  .drop-title { font-size: 16px; font-weight: 500; margin-bottom: 6px; }
+  .drop-sub { font-size: 13px; color: var(--text-muted); }
+  .drop-sub strong { color: var(--accent); font-weight: 400; }
+  #file-input { display: none; }
+  .file-list-section { margin-top: 28px; display: none; }
+  .file-list-section.visible { display: block; }
+  .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .section-title { font-family: 'Space Mono', monospace; font-size: 11px; letter-spacing: 0.15em; color: var(--text-muted); text-transform: uppercase; }
+  .count-badge { background: var(--surface2); border: 1px solid var(--border); border-radius: 20px; font-family: 'Space Mono', monospace; font-size: 11px; padding: 3px 10px; color: var(--accent); }
+  .file-list { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+  .file-item { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; display: flex; align-items: center; gap: 12px; transition: all 0.15s ease; cursor: grab; user-select: none; }
+  .file-item:active { cursor: grabbing; }
+  .file-item.dragging { opacity: 0.4; border-style: dashed; }
+  .file-item.drag-target { border-color: var(--accent2); background: #1a2420; }
+  .file-type-badge { font-family: 'Space Mono', monospace; font-size: 10px; font-weight: 700; padding: 3px 7px; border-radius: 3px; letter-spacing: 0.05em; flex-shrink: 0; }
+  .type-pdf  { background: rgba(255,76,76,0.15);  color: #ff7070; }
+  .type-img  { background: rgba(60,255,212,0.12); color: var(--accent2); }
+  .type-heic { background: rgba(232,255,60,0.12); color: var(--accent); }
+  .file-name { font-size: 13px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+  .file-size { font-family: 'Space Mono', monospace; font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
+  .drag-handle { color: var(--border); font-size: 16px; flex-shrink: 0; transition: color 0.15s; }
+  .file-item:hover .drag-handle { color: var(--text-muted); }
+  .remove-btn { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 18px; line-height: 1; padding: 2px; flex-shrink: 0; transition: color 0.15s ease; display: flex; align-items: center; }
+  .remove-btn:hover { color: var(--danger); }
+  .controls { margin-top: 24px; display: flex; gap: 12px; flex-wrap: wrap; }
+  .btn { font-family: 'Noto Sans JP', sans-serif; font-size: 13px; font-weight: 500; padding: 12px 24px; border-radius: var(--radius); border: none; cursor: pointer; transition: all 0.2s ease; display: flex; align-items: center; gap: 8px; letter-spacing: 0.02em; }
+  .btn-primary { background: var(--accent); color: #0d0d0d; flex: 1; justify-content: center; font-weight: 700; }
+  .btn-primary:hover:not(:disabled) { background: #f5ff6e; transform: translateY(-1px); box-shadow: 0 6px 20px rgba(232,255,60,0.25); }
+  .btn-primary:disabled { background: var(--border); color: var(--text-muted); cursor: not-allowed; transform: none; box-shadow: none; }
+  .btn-ghost { background: var(--surface); color: var(--text-muted); border: 1px solid var(--border); }
+  .btn-ghost:hover { border-color: var(--text-muted); color: var(--text); }
+  .progress-section { margin-top: 24px; display: none; }
+  .progress-section.visible { display: block; }
+  .progress-bar-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; height: 6px; overflow: hidden; margin-bottom: 10px; }
+  .progress-bar { height: 100%; background: linear-gradient(90deg, var(--accent2), var(--accent)); width: 0%; transition: width 0.3s ease; border-radius: 4px; }
+  .progress-label { font-size: 12px; color: var(--text-muted); font-family: 'Space Mono', monospace; }
+  .toast { position: fixed; bottom: 32px; right: 32px; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 20px; font-size: 13px; max-width: 320px; z-index: 100; transform: translateY(20px); opacity: 0; transition: all 0.3s ease; display: flex; align-items: center; gap: 10px; }
+  .toast.show { transform: translateY(0); opacity: 1; }
+  .toast.success { border-left: 3px solid var(--accent); }
+  .toast.error   { border-left: 3px solid var(--danger); }
+  .filename-row { margin-top: 20px; display: flex; align-items: center; gap: 10px; }
+  .filename-label { font-size: 12px; color: var(--text-muted); white-space: nowrap; font-family: 'Space Mono', monospace; }
+  .filename-input { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-family: 'Space Mono', monospace; font-size: 13px; padding: 9px 12px; outline: none; transition: border-color 0.2s; }
+  .filename-input:focus { border-color: var(--accent); }
+  .ext-label { font-family: 'Space Mono', monospace; font-size: 13px; color: var(--text-muted); }
+  .hint { margin-top: 36px; padding: 16px 18px; background: var(--surface); border-left: 2px solid var(--border); border-radius: 0 var(--radius) var(--radius) 0; font-size: 12px; color: var(--text-muted); line-height: 1.7; }
+  .hint strong { color: var(--accent2); font-weight: 500; }
+  #install-banner { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #1e1e1e; border: 1px solid var(--accent); border-radius: 8px; padding: 14px 20px; display: flex; align-items: center; gap: 14px; font-size: 13px; color: var(--text); z-index: 200; white-space: nowrap; box-shadow: 0 8px 32px rgba(0,0,0,0.6); animation: slideUp 0.3s ease; }
+  @keyframes slideUp { from { opacity: 0; transform: translateX(-50%) translateY(20px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+  #install-banner button.install-ok { background: var(--accent); color: #0d0d0d; border: none; border-radius: 5px; padding: 8px 16px; cursor: pointer; font-weight: 700; font-size: 13px; font-family: inherit; }
+  #install-banner button.install-close { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 18px; line-height: 1; }
+  @media (max-width: 480px) { .controls { flex-direction: column; } .btn-primary { flex: unset; } #install-banner { white-space: normal; max-width: 90vw; flex-wrap: wrap; } }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div class="logo">PDF Merger Tool</div>
+    <h1>複数ファイルを<span>1つのPDF</span>に</h1>
+    <p class="subtitle">PDF・JPEG・PNG・HEIC などをドラッグ＆ドロップ → 順番を並べ替え → 結合</p>
+  </header>
+  <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
+    <span class="drop-icon">📂</span>
+    <div class="drop-title">ファイルをドロップ、またはクリックして選択</div>
+    <div class="drop-sub">対応形式: <strong>PDF</strong> ・ <strong>JPEG / PNG / WEBP / HEIC</strong></div>
+  </div>
+  <input type="file" id="file-input" multiple accept=".pdf,.heic,.heif,image/jpeg,image/png,image/webp,image/bmp,image/heic,image/heif">
+  <div class="file-list-section" id="file-list-section">
+    <div class="section-header">
+      <span class="section-title">追加ファイル — ドラッグで並べ替え可能</span>
+      <span class="count-badge" id="count-badge">0 件</span>
+    </div>
+    <ul class="file-list" id="file-list"></ul>
+    <div class="filename-row">
+      <span class="filename-label">出力ファイル名</span>
+      <input type="text" class="filename-input" id="output-name" value="merged_output">
+      <span class="ext-label">.pdf</span>
+    </div>
+    <div class="controls">
+      <button class="btn btn-ghost" id="clear-btn">🗑 すべて削除</button>
+      <button class="btn btn-primary" id="merge-btn">⚡ PDFを結合する</button>
+    </div>
+    <div class="progress-section" id="progress-section">
+      <div class="progress-bar-wrap"><div class="progress-bar" id="progress-bar"></div></div>
+      <div class="progress-label" id="progress-label">処理中...</div>
+    </div>
+  </div>
+  <div class="hint">
+    <strong>ヒント</strong><br>
+    • ファイルはブラウザ上で処理されます。サーバーへの送信はありません。<br>
+    • リスト内のアイテムをドラッグして、PDF内の順番を変更できます。<br>
+    • 画像ファイルはA4サイズページに自動フィットして変換されます。<br>
+    • インストール後はオフラインでも使用できます。
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+const { PDFDocument } = PDFLib;
+let files = [], dragSrcId = null;
+const dropZone=document.getElementById('drop-zone'),fileInput=document.getElementById('file-input'),listSec=document.getElementById('file-list-section'),fileList=document.getElementById('file-list'),countBadge=document.getElementById('count-badge'),mergeBtn=document.getElementById('merge-btn'),clearBtn=document.getElementById('clear-btn'),progSec=document.getElementById('progress-section'),progBar=document.getElementById('progress-bar'),progLabel=document.getElementById('progress-label'),toast=document.getElementById('toast');
+dropZone.addEventListener('dragover',e=>{e.preventDefault();dropZone.classList.add('drag-over');});
+dropZone.addEventListener('dragleave',()=>dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop',e=>{e.preventDefault();dropZone.classList.remove('drag-over');addFiles(Array.from(e.dataTransfer.files));});
+fileInput.addEventListener('change',()=>{addFiles(Array.from(fileInput.files));fileInput.value='';});
+const ACCEPTED=['application/pdf','image/jpeg','image/png','image/webp','image/bmp','image/heic','image/heif'];
+function getFileMime(f){if(f.type)return f.type;const ext=f.name.split('.').pop().toLowerCase();if(ext==='heic')return 'image/heic';if(ext==='heif')return 'image/heif';return '';}
+function addFiles(newFiles){const before=files.length;for(const f of newFiles){const mime=getFileMime(f);if(!ACCEPTED.includes(mime)){showToast(`⚠ 非対応形式: ${f.name}`,'error');continue;}files.push({id:crypto.randomUUID(),file:f,name:f.name,size:f.size,type:mime});}if(files.length>before)renderList();}
+function fmtSize(b){if(b<1024)return b+' B';if(b<1024*1024)return (b/1024).toFixed(1)+' KB';return (b/1024/1024).toFixed(1)+' MB';}
+function typeLabel(mime){if(mime==='application/pdf')return '<span class="file-type-badge type-pdf">PDF</span>';if(mime==='image/heic'||mime==='image/heif')return '<span class="file-type-badge type-heic">HEIC</span>';const ext=mime.split('/')[1].toUpperCase().replace('JPEG','JPG');return `<span class="file-type-badge type-img">${ext}</span>`;}
+function renderList(){fileList.innerHTML='';files.forEach(f=>{const li=document.createElement('li');li.className='file-item';li.dataset.id=f.id;li.draggable=true;li.innerHTML=`<span class="drag-handle">⠿</span>${typeLabel(f.type)}<span class="file-name" title="${f.name}">${f.name}</span><span class="file-size">${fmtSize(f.size)}</span><button class="remove-btn" data-id="${f.id}" title="削除">✕</button>`;li.addEventListener('dragstart',onDragStart);li.addEventListener('dragover',onDragOver);li.addEventListener('drop',onDrop);li.addEventListener('dragend',onDragEnd);fileList.appendChild(li);});listSec.classList.toggle('visible',files.length>0);countBadge.textContent=files.length+' 件';fileList.querySelectorAll('.remove-btn').forEach(btn=>{btn.addEventListener('click',e=>{e.stopPropagation();files=files.filter(f=>f.id!==btn.dataset.id);renderList();});});}
+function onDragStart(e){dragSrcId=e.currentTarget.dataset.id;e.currentTarget.classList.add('dragging');e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',dragSrcId);}
+function onDragOver(e){e.preventDefault();e.dataTransfer.dropEffect='move';document.querySelectorAll('.file-item').forEach(el=>el.classList.remove('drag-target'));e.currentTarget.classList.add('drag-target');}
+function onDrop(e){e.stopPropagation();const targetId=e.currentTarget.dataset.id;if(dragSrcId===targetId)return;const srcIdx=files.findIndex(f=>f.id===dragSrcId);const tgtIdx=files.findIndex(f=>f.id===targetId);const[moved]=files.splice(srcIdx,1);files.splice(tgtIdx,0,moved);renderList();}
+function onDragEnd(){document.querySelectorAll('.file-item').forEach(el=>el.classList.remove('dragging','drag-target'));}
+clearBtn.addEventListener('click',()=>{files=[];renderList();});
+mergeBtn.addEventListener('click',mergePDFs);
+async function mergePDFs(){if(files.length===0)return;mergeBtn.disabled=true;progSec.classList.add('visible');setProgress(0,'結合を開始しています...');try{const merged=await PDFDocument.create();const total=files.length;for(let i=0;i<total;i++){const f=files[i];setProgress(Math.round((i/total)*90),`処理中 (${i+1}/${total}): ${f.name}`);if(f.type==='application/pdf'){const bytes=await readAsArrayBuffer(f.file);const src=await PDFDocument.load(bytes,{ignoreEncryption:true});const pages=await merged.copyPages(src,src.getPageIndices());pages.forEach(p=>merged.addPage(p));}else if(f.type==='image/heic'||f.type==='image/heif'){const blob=new Blob([await readAsArrayBuffer(f.file)],{type:f.type});const jpegBlob=await heic2any({blob,toType:'image/jpeg',quality:0.92});const jpegBytes=await(Array.isArray(jpegBlob)?jpegBlob[0]:jpegBlob).arrayBuffer();await embedImage(merged,jpegBytes,'jpg');}else if(f.type==='image/png'){await embedImage(merged,await readAsArrayBuffer(f.file),'png');}else{await embedImage(merged,await readAsArrayBuffer(f.file),'jpg');}}setProgress(96,'最終化中...');const pdfBytes=await merged.save();setProgress(100,'完了！ ダウンロードを開始します...');const name=(document.getElementById('output-name').value.trim()||'merged_output')+'.pdf';downloadBlob(pdfBytes,name);showToast('✅ 結合完了！ PDFをダウンロードしました','success');setTimeout(()=>{progSec.classList.remove('visible');setProgress(0,'');},2500);}catch(err){console.error(err);showToast('❌ エラー: '+err.message,'error');progSec.classList.remove('visible');}finally{mergeBtn.disabled=false;}}
+async function embedImage(doc,bytes,type){const A4_W=595.28,A4_H=841.89;const embed=type==='png'?await doc.embedPng(bytes):await doc.embedJpg(bytes);const{width:iw,height:ih}=embed;const scale=Math.min(A4_W/iw,A4_H/ih,1);const w=iw*scale,h=ih*scale;const page=doc.addPage([A4_W,A4_H]);page.drawImage(embed,{x:(A4_W-w)/2,y:(A4_H-h)/2,width:w,height:h});}
+function readAsArrayBuffer(file){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=()=>rej(r.error);r.readAsArrayBuffer(file);});}
+function downloadBlob(bytes,filename){const url=URL.createObjectURL(new Blob([bytes],{type:'application/pdf'}));Object.assign(document.createElement('a'),{href:url,download:filename}).click();URL.revokeObjectURL(url);}
+function setProgress(pct,label){progBar.style.width=pct+'%';progLabel.textContent=label;}
+let toastTimer;
+function showToast(msg,type='success'){toast.textContent=msg;toast.className=`toast ${type} show`;clearTimeout(toastTimer);toastTimer=setTimeout(()=>toast.classList.remove('show'),4000);}
+if('serviceWorker'in navigator){navigator.serviceWorker.register('./sw.js').then(reg=>console.log('[PWA] SW registered, scope:',reg.scope)).catch(err=>console.warn('[PWA] SW failed:',err));}
+let deferredPrompt=null;
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;showInstallBanner();});
+window.addEventListener('appinstalled',()=>showToast('✅ アプリをインストールしました','success'));
+function showInstallBanner(){if(document.getElementById('install-banner'))return;const banner=document.createElement('div');banner.id='install-banner';banner.innerHTML=`<span>📲 このアプリをデスクトップにインストールできます</span><button class="install-ok">インストール</button><button class="install-close">✕</button>`;banner.querySelector('.install-ok').addEventListener('click',async()=>{if(!deferredPrompt)return;deferredPrompt.prompt();const{outcome}=await deferredPrompt.userChoice;deferredPrompt=null;banner.remove();if(outcome==='accepted')showToast('✅ インストールしました！','success');});banner.querySelector('.install-close').addEventListener('click',()=>banner.remove());document.body.appendChild(banner);}
+</script>
+</body>
+</html>
