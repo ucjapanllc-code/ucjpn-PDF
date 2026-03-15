@@ -598,16 +598,14 @@ async function buildPDF(pageData, quality) {
   for (const pd of pageData) {
     if (pd.isPdf) {
       if (quality < MAX_QUALITY) {
-        // PDFページをCanvasにラスタライズして再圧縮
+        // 圧縮あり: ラスタライズしてA4に配置
         await rasterizePdf(merged, pd.pdfBytes, quality);
       } else {
-        // 圧縮不要ならそのままコピー
-        const src = await PDFDocument.load(pd.pdfBytes, { ignoreEncryption: true });
-        const pages = await merged.copyPages(src, src.getPageIndices());
-        pages.forEach(p => merged.addPage(p));
+        // 圧縮なし: ページをコピーしてA4サイズに正規化
+        await copyPdfPagesAsA4(merged, pd.pdfBytes);
       }
     } else {
-      // 画像: Canvasで再エンコード
+      // 画像: Canvasで再エンコードしてA4に配置
       const jpegBytes = await reencodeImage(pd.imgBytes, pd.imgType, quality);
       const embed = await merged.embedJpg(jpegBytes);
       const { width: iw, height: ih } = embed;
@@ -618,6 +616,32 @@ async function buildPDF(pageData, quality) {
     }
   }
   return await merged.save();
+}
+
+// ── PDFページをA4キャンバスに収まるようスケールしてコピー（テキスト・ベクター保持）
+async function copyPdfPagesAsA4(mergedDoc, pdfBytes) {
+  const A4_W = 595.28, A4_H = 841.89;
+  const src = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
+  const indices = src.getPageIndices();
+  const copied = await mergedDoc.copyPages(src, indices);
+
+  for (const srcPage of copied) {
+    const { width: pw, height: ph } = srcPage.getSize();
+
+    // すでにA4サイズ（±1pt以内）ならそのまま追加
+    if (Math.abs(pw - A4_W) < 1 && Math.abs(ph - A4_H) < 1) {
+      mergedDoc.addPage(srcPage);
+      continue;
+    }
+
+    // A4ページを新規作成し、元ページをアスペクト比維持でフィット
+    const scale = Math.min(A4_W / pw, A4_H / ph);
+    const w = pw * scale, h = ph * scale;
+    const x = (A4_W - w) / 2, y = (A4_H - h) / 2;
+
+    const newPage = mergedDoc.addPage([A4_W, A4_H]);
+    newPage.drawPage(srcPage, { x, y, width: w, height: h });
+  }
 }
 
 // ── 画像をCanvasで再エンコード（PNG→JPEGも対応）
@@ -644,16 +668,21 @@ async function reencodeImage(bytes, type, quality) {
   });
 }
 
-// ── PDFページをpdf.jsでCanvasにラスタライズしてJPEGに変換
+// ── PDFページをpdf.jsでCanvasにラスタライズ → JPEG → A4に配置
 async function rasterizePdf(mergedDoc, pdfBytes, quality) {
   const A4_W = 595.28, A4_H = 841.89;
+  const DPI_SCALE = 2.0; // 解像度倍率（高いほど高品質）
   const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(pdfBytes) });
   const pdfDoc = await loadingTask.promise;
-  const numPages = pdfDoc.numPages;
 
-  for (let p = 1; p <= numPages; p++) {
+  for (let p = 1; p <= pdfDoc.numPages; p++) {
     const page = await pdfDoc.getPage(p);
-    const viewport = page.getViewport({ scale: 1.5 }); // 解像度調整
+    const { width: pw, height: ph } = page.getViewport({ scale: 1 });
+
+    // A4に収まるスケールでレンダリング
+    const fitScale = Math.min(A4_W / pw, A4_H / ph) * DPI_SCALE;
+    const viewport = page.getViewport({ scale: fitScale });
+
     const canvas = document.createElement('canvas');
     canvas.width  = viewport.width;
     canvas.height = viewport.height;
